@@ -49,8 +49,12 @@ def _corners(image, pattern):
     return cv2.cornerSubPix(gray, points / scale, (7, 7), (-1, -1), criteria).reshape(-1, 2)
 
 
-def calibrate_stereo(directory, pattern, square_size, excluded_pairs=()):
-    """Calibra descartando pares con error atipico; no escribe archivos PKL."""
+def calibrate_stereo(directory, pattern, square_size, excluded_pairs=(), max_pair_error=2.0):
+    """Calibra cada camara (Zhang) y luego el par; no escribe archivos PKL.
+
+    Los pares cuyo error de reproyeccion estereo supera max_pair_error px se
+    descartan y se recalibra con el resto.
+    """
     obj = np.zeros((pattern[0] * pattern[1], 3), np.float32)
     obj[:, :2] = np.mgrid[0:pattern[0], 0:pattern[1]].T.reshape(-1, 2) * square_size
     left_points, right_points, used = [], [], []
@@ -74,21 +78,25 @@ def calibrate_stereo(directory, pattern, square_size, excluded_pairs=()):
     if len(used) < 10:
         raise ValueError("Se requieren al menos 10 pares de calibracion validos")
 
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-8)
     for iteration in range(5):
+        # Intrinsecos y distorsion de cada camara por separado (calibrateCamera).
+        left_rms, left_K, left_dist, _, _ = cv2.calibrateCamera(
+            [obj] * len(used), left_points, image_size, None, None)
+        right_rms, right_K, right_dist, _, _ = cv2.calibrateCamera(
+            [obj] * len(used), right_points, image_size, None, None)
+        # R y T entre camaras; los intrinsecos se usan como punto de partida.
         result = cv2.stereoCalibrateExtended(
             [obj] * len(used), left_points, right_points,
-            None, None, None, None, image_size, None, None,
-            flags=0, criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-8)
+            left_K, left_dist, right_K, right_dist, image_size, None, None,
+            flags=cv2.CALIB_USE_INTRINSIC_GUESS, criteria=criteria
         )
         errors = np.sqrt(np.mean(result[-1] ** 2, axis=1))
-        median = np.median(errors)
-        # Mediana + 2.5 desviaciones robustas; piso de 1 px para no sobrefiltrar.
-        limit = max(1.0, median + 2.5 * 1.4826 * np.median(np.abs(errors - median)))
-        keep = errors <= limit
+        keep = errors <= max_pair_error
         if keep.all() or iteration == 4:
             break
         if keep.sum() < 10:
-            raise ValueError("Quedan menos de 10 pares tras filtrar errores atipicos")
+            raise ValueError("Quedan menos de 10 pares tras filtrar por error de reproyeccion")
         left_points = [p for p, valid in zip(left_points, keep) if valid]
         right_points = [p for p, valid in zip(right_points, keep) if valid]
         used = [number for number, valid in zip(used, keep) if valid]
@@ -98,7 +106,8 @@ def calibrate_stereo(directory, pattern, square_size, excluded_pairs=()):
         "left_K": left_K, "left_dist": left_dist,
         "right_K": right_K, "right_dist": right_dist,
         "R": R, "T": T, "E": E, "F": F, "image_size": image_size,
-        "rms": float(rms), "used_pairs": used,
+        "rms": float(rms), "left_rms": float(left_rms), "right_rms": float(right_rms),
+        "used_pairs": used,
         "excluded_pairs": sorted(int(p.stem.split("_")[-1]) for p in files
                                  if int(p.stem.split("_")[-1]) not in used),
         "pattern": tuple(pattern), "square_size_mm": square_size,
@@ -160,3 +169,37 @@ def _rectification_maps(calibration):
             calibration[f"{side}_K"], calibration[f"{side}_dist"], R, P, size, cv2.CV_32FC1
         )
     return maps
+
+
+def validate_stereo(directory, calibration, maps, board, pairs):
+    """Error epipolar y de escala con esquinas ChArUco en pares no usados.
+
+    Para cada par se rectifican las esquinas detectadas en ambas imagenes:
+    |dy| mide la alineacion de lineas epipolares y la escala compara las
+    distancias entre esquinas trianguladas con las del tablero real.
+    """
+    params = cv2.aruco.CharucoParameters()
+    params.checkMarkers = False
+    params.minMarkers = 2
+    detector = cv2.aruco.CharucoDetector(board, params)
+    rows = []
+    for number in pairs:
+        left, right = load_pair(directory, number)
+        lc, li, _, _ = detector.detectBoard(left)
+        rc, ri, _, _ = detector.detectBoard(right)
+        if li is None or ri is None:
+            continue
+        ids, a, b = np.intersect1d(li.ravel(), ri.ravel(), return_indices=True)
+        if len(ids) < 8:
+            continue
+        pl = cv2.undistortPoints(lc[a], calibration["left_K"], calibration["left_dist"],
+                                 R=maps["R1"], P=maps["P1"]).reshape(-1, 2)
+        pr = cv2.undistortPoints(rc[b], calibration["right_K"], calibration["right_dist"],
+                                 R=maps["R2"], P=maps["P2"]).reshape(-1, 2)
+        points = np.c_[pl, pl[:, 0] - pr[:, 0]].reshape(-1, 1, 3).astype(np.float64)
+        X = cv2.perspectiveTransform(points, maps["Q"]).reshape(-1, 3)
+        obj = board.getChessboardCorners()[ids]
+        i, j = np.triu_indices(len(ids), 1)
+        scale = np.linalg.norm(X[i] - X[j], axis=1) / np.linalg.norm(obj[i] - obj[j], axis=1)
+        rows.append((number, len(ids), np.mean(np.abs(pl[:, 1] - pr[:, 1])), np.median(scale)))
+    return np.array(rows)

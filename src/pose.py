@@ -4,15 +4,15 @@ import cv2
 import numpy as np
 
 
-def estimate_camera_pose(image, board, K, dist, min_corners=8, min_area_ratio=0.02):
+def estimate_camera_pose(image, board, K, dist, min_corners=8):
     """Devuelve rvec, tvec, pose camara a tablero y RMS de reproyeccion.
 
-    Los minimos de esquinas y area visible son filtros practicos de calidad.
+    La calidad de la pose se controla con la cantidad de esquinas detectadas
+    y el error de reproyeccion.
     """
     params = cv2.aruco.CharucoParameters()
     params.cameraMatrix = K
     params.distCoeffs = dist
-    # La calidad se evalua con las esquinas, su cobertura y el RMS.
     params.checkMarkers = False
     params.minMarkers = 2
     corners, ids, _, _ = cv2.aruco.CharucoDetector(board, params).detectBoard(image)
@@ -21,11 +21,6 @@ def estimate_camera_pose(image, board, K, dist, min_corners=8, min_area_ratio=0.
         raise ValueError(f"Esquinas ChArUco detectadas: {count}; minimo requerido: {min_corners}")
     if board.checkCharucoCornersCollinear(ids):
         raise ValueError("Las esquinas ChArUco son colineales")
-    area_ratio = cv2.contourArea(cv2.convexHull(corners)) / (image.shape[0] * image.shape[1])
-    if area_ratio < min_area_ratio:
-        raise ValueError(
-            f"Las esquinas cubren {area_ratio:.1%} de la imagen; se requiere {min_area_ratio:.1%}"
-        )
 
     object_points = board.getChessboardCorners()[ids.flatten()]
     ok, rvec, tvec = cv2.solvePnP(object_points, corners.reshape(-1, 2), K, dist)
