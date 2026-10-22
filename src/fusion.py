@@ -1,5 +1,6 @@
 """Fusion de las nubes en el marco del tablero y optimizacion con Open3D."""
 
+import cv2
 import numpy as np
 import open3d as o3d
 
@@ -51,7 +52,7 @@ def fuse_dataset(data_dir, calibration, maps, board, box, max_pose_rms=5.0,
     muy submuestreada de la escena completa (solo para la figura del
     "antes"), las poses y un resumen por captura.
     """
-    o3d.utility.random.seed(0)  # RANSAC reproducible
+    o3d.utility.random.seed(0)  # Semilla inicial de RANSAC
     clouds, scene = {}, o3d.geometry.PointCloud()
     camera_poses, report = {}, {}
     for result in reconstruct_dataset(data_dir, calibration, maps, board, max_pose_rms):
@@ -60,7 +61,11 @@ def fuse_dataset(data_dir, calibration, maps, board, box, max_pose_rms=5.0,
             report[number] = {"error": result["error"]}
             continue
         cloud = result["cloud"]
-        transform, degrees, offset = correct_board_plane(cloud, box)
+        try:
+            transform, degrees, offset = correct_board_plane(cloud, box)
+        except (ValueError, RuntimeError) as error:
+            report[number] = {"error": str(error)}
+            continue
         if abs(offset) > max_correction_mm or degrees > max_correction_deg:
             report[number] = {"error": f"Correccion de plano no plausible: {degrees:.1f} grados, {offset:.1f} mm"}
             continue
@@ -84,6 +89,82 @@ def merge(clouds):
     for cloud in clouds.values():
         fused += cloud
     return fused
+
+
+def refine_clouds_icp(clouds, camera_poses, reference=None, voxel_size=2.0,
+                      max_distance=3.0, max_motion_mm=10.0, max_angle_deg=3.0):
+    """Refina nubes y poses contra una referencia fija mediante ICP punto a plano.
+
+    La inicializacion es la pose global ya estimada. Se aceptan correcciones
+    pequenas que reducen el RMSE sin perder mas del 5% de correspondencias.
+    Devuelve copias de las nubes, poses actualizadas y las metricas por vista.
+    """
+    if reference is None:
+        reference = merge(clouds)
+    target = reference.voxel_down_sample(voxel_size)
+    target, _ = target.remove_statistical_outlier(30, 2.0)
+    target.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(
+        radius=4 * voxel_size, max_nn=30))
+    registration = o3d.pipelines.registration
+    estimator = registration.TransformationEstimationPointToPlane(
+        registration.HuberLoss(1.0))
+    aligned, poses, report = {}, {}, {}
+    for number, cloud in clouds.items():
+        source = cloud.voxel_down_sample(voxel_size)
+        before = registration.evaluate_registration(source, target, max_distance)
+        result = registration.registration_icp(
+            source, target, max_distance, np.eye(4), estimator,
+            registration.ICPConvergenceCriteria(max_iteration=50))
+        transform = result.transformation
+        angle = float(np.degrees(np.arccos(np.clip(
+            (np.trace(transform[:3, :3]) - 1) / 2, -1, 1))))
+        center = source.get_center()
+        motion = float(np.linalg.norm(
+            transform[:3, :3] @ center + transform[:3, 3] - center))
+        applied = (np.isfinite(transform).all() and before.fitness > 0 and
+                   result.inlier_rmse < before.inlier_rmse and
+                   result.fitness >= 0.95 * before.fitness and
+                   motion <= max_motion_mm and angle <= max_angle_deg)
+        aligned[number] = o3d.geometry.PointCloud(cloud)
+        poses[number] = camera_poses[number].copy()
+        if applied:
+            aligned[number].transform(transform)
+            poses[number] = transform @ poses[number]
+        report[number] = {
+            "applied": bool(applied), "rmse_before": before.inlier_rmse,
+            "rmse_after": result.inlier_rmse if applied else before.inlier_rmse,
+            "fitness_before": before.fitness,
+            "fitness_after": result.fitness if applied else before.fitness,
+            "motion_mm": motion if applied else 0.0,
+            "angle_deg": angle if applied else 0.0,
+        }
+    return aligned, poses, report
+
+
+def validate_icp(clouds, camera_poses, voxel_size=2.0, distance_limit=5.0):
+    """Compara ICP sobre muestras iguales y vistas independientes del ajuste.
+
+    Capturas modulo 3: 0 para referencia, 1 para evaluacion y 2 para alinear.
+    Devuelve captura, distancia media antes/despues (limitada a 5 mm por
+    defecto) y si se acepto la correccion.
+    """
+    reference = merge({n: c for n, c in clouds.items() if n % 3 == 0})
+    evaluation = merge({n: c for n, c in clouds.items() if n % 3 == 1})
+    evaluation = evaluation.voxel_down_sample(voxel_size)
+    tested = {n: c for n, c in clouds.items() if n % 3 == 2}
+    if not len(reference.points) or not len(evaluation.points) or not tested:
+        raise ValueError("Se requieren nubes en los tres grupos de validacion ICP")
+    _, poses, registrations = refine_clouds_icp(
+        tested, camera_poses, reference=reference, voxel_size=voxel_size)
+    rows = []
+    for number, cloud in tested.items():
+        sample = cloud.voxel_down_sample(voxel_size)
+        corrected = o3d.geometry.PointCloud(sample)
+        corrected.transform(poses[number] @ np.linalg.inv(camera_poses[number]))
+        before = np.minimum(sample.compute_point_cloud_distance(evaluation), distance_limit).mean()
+        after = np.minimum(corrected.compute_point_cloud_distance(evaluation), distance_limit).mean()
+        rows.append((number, before, after, registrations[number]["applied"]))
+    return np.array(rows)
 
 
 def optimize_cloud(cloud, nb_neighbors, std_ratio, voxel_size, nb_points, radius):
@@ -126,18 +207,21 @@ def measure_object(cloud, n_directions=360):
     points = np.asarray(cloud.points)[:, :2]
     angles = np.linspace(0, np.pi, n_directions, endpoint=False)
     directions = np.c_[np.cos(angles), np.sin(angles)]
-    projections = points @ directions.T
+    # Los extremos de cualquier proyeccion estan en la envolvente convexa.
+    indices = cv2.convexHull(points.astype(np.float32), returnPoints=False).ravel()
+    hull = points[indices]
+    projections = hull @ directions.T
     best = np.argmax(projections.max(axis=0) - projections.min(axis=0))
     i, j = projections[:, best].argmin(), projections[:, best].argmax()
-    axis = (points[j] - points[i]) / np.linalg.norm(points[j] - points[i])
+    axis = (hull[j] - hull[i]) / np.linalg.norm(hull[j] - hull[i])
     normal = np.array([-axis[1], axis[0]])
-    along, across = (points - points[i]) @ axis, (points - points[i]) @ normal
+    along, across = (hull - hull[i]) @ axis, (hull - hull[i]) @ normal
     obb = cloud.get_oriented_bounding_box()
     return {
         "alto_mm": height,
         "largo_mm": float(along.max() - along.min()),
         "ancho_mm": float(across.max() - across.min()),
-        "extremos": (points[i], points[j]), "eje_largo": axis,
+        "extremos": (hull[i], hull[j]), "eje_largo": axis,
         "aabb_extent_mm": np.asarray(aabb.get_extent()),
         "obb_extent_mm": np.sort(np.asarray(obb.extent))[::-1],
     }

@@ -40,19 +40,3 @@ def reconstruct_dataset(data_dir, calibration, maps, board, max_pose_rms=5.0):
         except (ValueError, FileNotFoundError, cv2.error) as error:
             result["error"] = str(error)
         yield result
-
-
-def process_dataset(data_dir, calibration, maps, board, max_pose_rms):
-    """Devuelve las poses y el resumen de calidad sin acumular las nubes."""
-    camera_poses, report = {}, {}
-    for result in reconstruct_dataset(data_dir, calibration, maps, board, max_pose_rms):
-        number = result["capture"]
-        if "camera_pose" in result:
-            camera_poses[number] = result["camera_pose"]
-        report[number] = {
-            key: value for key, value in result.items()
-            if key not in ("capture", "cloud", "camera_pose")
-        }
-        if len(report) % 10 == 0:
-            print(f"Revisadas {len(report)} capturas")
-    return camera_poses, report

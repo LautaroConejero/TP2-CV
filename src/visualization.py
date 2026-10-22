@@ -64,12 +64,6 @@ def show_cloud(cloud, camera_pose=None, K=None, image_size=None, axis_size=100):
     )
 
 
-def show_camera_poses(camera_poses, K, image_size, axis_size=100):
-    """Muestra las camaras aceptadas en el sistema del tablero."""
-    o3d.visualization.draw_geometries(camera_geometries(camera_poses, K, image_size, axis_size),
-                                      window_name="Poses de las camaras")
-
-
 def render_geometries(geometries, path, front, up, lookat=None, zoom=0.7,
                       width=1280, height=960, point_size=2.0):
     """Guarda una captura PNG sin abrir ventana (para el informe y Jupyter)."""
@@ -127,8 +121,7 @@ def plot_camera_trajectory(camera_poses, board_size, object_center=None, path=No
 
 def plot_measurement(cloud, measurement, path=None):
     """Proyeccion superior con los puntos extremos y perfil lateral con el alto."""
-    points = np.asarray(cloud.points)[::3]
-    colors = np.asarray(cloud.colors)[::3]
+    points = np.asarray(cloud.points)
     p, q = measurement["extremos"]
     axis = measurement["eje_largo"]
     normal = np.array([-axis[1], axis[0]])
@@ -138,6 +131,9 @@ def plot_measurement(cloud, measurement, path=None):
                         [along.max(), across.max()], [along.min(), across.max()],
                         [along.min(), across.min()]])
     corners = p + corners[:, :1] * axis + corners[:, 1:] * normal
+    # Reducir solo los puntos dibujados; los limites usan la nube completa.
+    points, along = points[::3], along[::3]
+    colors = np.asarray(cloud.colors)[::3]
     fig, (top, side) = plt.subplots(1, 2, figsize=(15, 6))
     top.scatter(points[:, 0], points[:, 1], c=colors, s=0.3)
     top.plot(*corners.T, "r-", linewidth=1.5)

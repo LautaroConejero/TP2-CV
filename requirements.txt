@@ -1,5 +1,5 @@
 numpy==2.4.6
-opencv-contrib-python==5.0.0.93
+opencv-python==5.0.0.93
 open3d==0.20.0
-matplotlib==3.11.2
-ipykernel==7.4.0
+matplotlib==3.9.0
+ipykernel==6.29.3

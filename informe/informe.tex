@@ -2,28 +2,50 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[spanish,es-noquoting]{babel}
+\addto\captionsspanish{\renewcommand{\tablename}{Tabla}}
 \usepackage[margin=1.8cm]{geometry}
 \usepackage{amsmath,amssymb,mathtools}
 \usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage{booktabs}
 \usepackage{hyperref}
+\hypersetup{
+    hidelinks,
+    pdftitle={TP2 - Reconstrucción 3D por estéreo multivista},
+    pdfauthor={Luca Fassio, Lautaro García Conejero, Franco Needleman}
+}
 \usepackage{xcolor}
 \usepackage[section]{placeins}
 \graphicspath{{../figures/}}
 \setlength{\parskip}{0.4em}
 \setlength{\parindent}{0pt}
 \setlength{\emergencystretch}{3em}
-\newcommand{\real}[1]{\textcolor{red}{#1}}
-
-\title{\vspace{-1.5cm}TP2 -- Reconstrucción 3D por estéreo multivista\\[0.2em]
-\large I308 Visión Artificial -- Universidad de San Andrés}
-\author{Franco Needleman \and Lautaro García Conejero \and Luca Fassio}
-\date{Octubre 2026}
 
 \begin{document}
-\maketitle
-\vspace{-0.8cm}
+
+\begin{titlepage}
+    \centering
+    \vspace*{1.5cm}
+
+    \includegraphics[width=0.42\linewidth]{logo.png}\par
+    \vspace{1.2cm}
+
+    {\Large Universidad de San Andrés\par}
+    \vspace{1.3cm}
+
+    {\LARGE \textbf{TP2 -- Reconstrucción 3D por estéreo multivista}\par}
+    \vspace{1.5cm}
+
+    {\large Luca Fassio: 36601\par}
+    {\large Lautaro García Conejero: 36632\par}
+    {\large Franco Needleman: 36604\par}
+    \vspace{0.8cm}
+
+    {\large Curso: I308 -- Visión Artificial, 2.º semestre de 2026\par}
+    {\large Universidad de San Andrés\par}
+
+    \vfill
+\end{titlepage}
 
 \begin{abstract}
 Reconstruimos la nube de puntos 3D métrica de un caracol marino a partir de 83 pares
@@ -31,7 +53,9 @@ estéreo tomados en órbita con una cámara ELP-USB3D1080P02-H120, usando un tab
 como marco de referencia global. El pipeline calibra y rectifica el par estéreo, calcula
 disparidad con SGBM, estima la pose de cada toma con \texttt{solvePnP}, fusiona las nubes en el
 marco del tablero y las optimiza con Open3D. Estimamos un tamaño de
-$122\times219\times202$\,mm (alto $\times$ largo $\times$ ancho)\real{, frente a \dots\ medidos con regla}.
+$129.6\times238.1\times206.3$\,mm (alto $\times$ largo $\times$ ancho), con las definiciones
+de medición indicadas más adelante. No se dispone aún de medidas físicas independientes
+para verificar la precisión absoluta.
 \end{abstract}
 
 %=====================================================================
@@ -39,7 +63,7 @@ $122\times219\times202$\,mm (alto $\times$ largo $\times$ ancho)\real{, frente a
 
 \textbf{Modelo pinhole y distorsión.} Un punto $\mathbf{X}_c=(X,Y,Z)$ en coordenadas de cámara
 se proyecta en $u = f_x X/Z + c_x$, $v = f_y Y/Z + c_y$, o en forma matricial
-$\lambda\,\tilde{\mathbf{u}} = K[R\,|\,\mathbf{t}]\tilde{\mathbf{X}}$ con
+$\lambda\,\tilde{\mathbf{u}} = K[R\,|\,\mathbf{t}]\tilde{\mathbf{X}}_w$ para puntos del mundo, con
 $K=\begin{psmallmatrix} f_x & 0 & c_x\\ 0 & f_y & c_y \\ 0&0&1\end{psmallmatrix}$.
 Los \emph{parámetros intrínsecos} son las distancias focales en píxeles $(f_x,f_y)$ y el punto
 principal $(c_x,c_y)$. Las lentes reales agregan distorsión radial ($k_1,k_2,k_3$) y tangencial
@@ -54,8 +78,10 @@ de geometría conocida (checkerboard) en muchas poses: para cada imagen se detec
 y se minimiza por Levenberg--Marquardt la suma de los cuadrados de las distancias entre las
 esquinas detectadas y las proyectadas por el modelo, de forma conjunta sobre $K_l, K_r$,
 distorsiones, $(R,\mathbf{t})$ y la pose del patrón en cada vista (\texttt{cv.stereoCalibrate}).
-El \emph{error de reproyección} RMS es la raíz del promedio de esas distancias en píxeles y
-mide qué tan bien explica el modelo las observaciones.
+Para $N$ observaciones 2D, el \emph{error de reproyección} es
+$\mathrm{RMS}=\sqrt{N^{-1}\sum_{i=1}^{N}\|\mathbf{u}_i-\hat{\mathbf{u}}_i\|_2^2}$,
+donde $\mathbf{u}_i$ es la esquina detectada y $\hat{\mathbf{u}}_i$ su proyección estimada.
+Mide el ajuste a esas observaciones, en píxeles; no verifica por sí solo la precisión física.
 
 \textbf{Geometría epipolar y rectificación.} Dado un punto en la imagen izquierda, su
 correspondiente en la derecha está sobre una recta, la \emph{línea epipolar}
@@ -66,14 +92,27 @@ son horizontales y en la misma fila. Así la búsqueda de correspondencias pasa 
 para cada píxel solo se busca a lo largo de la misma fila, lo que hace viable y robusto el
 cálculo denso de disparidad.
 
-\textbf{De disparidad a profundidad.} En un par rectificado, con focal $f$ y baseline $B$, un
-punto a profundidad $Z$ aparece en columnas $x_l$ y $x_r$ con disparidad $d=x_l-x_r$ y, por
-triángulos semejantes, $Z = fB/d$. La profundidad es inversamente proporcional a la
-disparidad, así que el error crece como $\delta Z \approx Z^2\,\delta d/(fB)$. La matriz $Q$ de
-\texttt{stereoRectify} expresa esta relación en forma homogénea:
-$[X\,Y\,Z\,W]^\top = Q[x\;y\;d\;1]^\top$ (\texttt{cv.reprojectImageTo3D}).
+\textbf{De disparidad a profundidad.} En el estéreo horizontal rectificado, con focal $f$,
+baseline $B>0$ y el mismo punto principal horizontal $c_x$ en ambas imágenes, un punto
+$(X,Y,Z)$ de la cámara izquierda se expresa como $(X-B,Y,Z)$ en la derecha. Al proyectarlo,
+\begin{equation}
+x_l=f\frac{X}{Z}+c_x,\qquad x_r=f\frac{X-B}{Z}+c_x
+\quad\Longrightarrow\quad d=x_l-x_r=\frac{fB}{Z},\qquad Z=\frac{fB}{d}.
+\label{eq:depth}
+\end{equation}
+Estas condiciones corresponden a la rectificación usada. Con $f$ y $d$ en píxeles y $B$
+en mm, $Z$ queda en mm. Derivando respecto de $d$, la sensibilidad es
+$|\partial Z/\partial d|=fB/d^2=Z^2/(fB)$: un error pequeño $\delta d$ produce
+$|\delta Z|\approx Z^2|\delta d|/(fB)$, mayor para puntos lejanos.
+La matriz $Q$ de \texttt{stereoRectify} reúne la reproyección en coordenadas homogéneas:
+\[
+[X_h\;Y_h\;Z_h\;W]^\top=Q[x_l\;y_l\;d\;1]^\top,\qquad
+(X,Y,Z)=(X_h/W,\,Y_h/W,\,Z_h/W).
+\]
+\texttt{reprojectImageTo3D} realiza también esta división; $W=0$ no define un punto finito.
 
 %=====================================================================
+\clearpage
 \section{Metodología}
 
 \textbf{Dataset propio.} Usamos la cámara ELP de la cátedra (dos sensores de $1920\times1080$,
@@ -84,71 +123,109 @@ que es el marco global ($x,y$ sobre el tablero, $z$ hacia la mesa).
 
 \textbf{Calibración.} Implementada con funciones de OpenCV (\texttt{src/calibration.py}).
 Las esquinas se detectan con \texttt{findChessboardCorners} sobre la imagen reducida al 70\,\% y
-se refinan con \texttt{cornerSubPix} a resolución completa. Se calibra con
-\texttt{stereoCalibrateExtended}, que devuelve el error por vista, y se descartan
-iterativamente los pares con error atípico (umbral: mediana $+\,2.5\cdot1.4826\cdot$MAD, con piso de
-1\,px); se usaron 32 pares. Como la órbita de captura cubre distancias y ángulos distintos a
-los de la calibración, refinamos $(R,\mathbf{t})$ con 12 vistas del ChArUco (capturas 0, 6, \dots,
-66) fijando los intrínsecos (\texttt{CALIB\_FIX\_INTRINSIC}). Validamos este paso en los 71 pares
-restantes. Los mapas de rectificación se calculan con \texttt{stereoRectify} ($\alpha=0$) e
-\texttt{initUndistortRectifyMap}.
+se refinan con \texttt{cornerSubPix} a resolución completa. Se estiman los intrínsecos y la
+distorsión con \texttt{calibrateCamera} para cada cámara, y se usan como punto de partida de
+\texttt{stereoCalibrateExtended} (\texttt{CALIB\_USE\_INTRINSIC\_GUESS}), que también los optimiza.
+Se descartan pares con error estéreo por par mayor a 2\,px y se recalibra; se conservaron 28 pares.
+El error por par es la raíz de la media de los errores RMS izquierdo y derecho al cuadrado.
+Como ajuste adicional, refinamos $(R,\mathbf{t})$ con 12 vistas del ChArUco (capturas 0, 6, \dots,
+66), fijando los intrínsecos y la distorsión (\texttt{CALIB\_FIX\_INTRINSIC}). Esas vistas se
+reservan para este ajuste y no forman parte de su validación: de los 71 pares restantes,
+66 tienen suficientes esquinas comunes. Las 12 vistas sí se pueden usar para reconstruir
+el objeto, pero no se consideran evidencia independiente del refinamiento.
+Los mapas de rectificación se calculan con \texttt{stereoRectify} ($\alpha=0$) e
+\texttt{initUndistortRectifyMap}. La Tabla~\ref{tab:calib} presenta los parámetros obtenidos;
+la Tabla~\ref{tab:valid} evalúa el refinamiento sobre vistas reservadas y la
+Figura~\ref{fig:rect} muestra su efecto en las imágenes.
 
 \textbf{Disparidad.} \texttt{StereoSGBM} (\texttt{src/disparity.py}) sobre las imágenes rectificadas
-en grises: \texttt{numDisparities}=192 (cubre de $\sim$190\,mm al infinito, ya que
-$Z=fB/d\approx 600\cdot59/192$), \texttt{blockSize}=7, $P_1=8\cdot7^2$, $P_2=32\cdot7^2$ (suavidad
-estándar de OpenCV), \texttt{uniquenessRatio}=5, \texttt{speckleWindowSize}=100,
-\texttt{speckleRange}=2, \texttt{disp12MaxDiff}=1 (chequeo izquierda-derecha). Los valores se
-ajustaron visualmente: bloques más chicos generaban ruido en el tablero blanco, y una
-unicidad mayor vaciaba las zonas de poca textura.
+en grises: \texttt{numDisparities}=192, \texttt{blockSize}=7, $P_1=8\cdot7^2$,
+$P_2=32\cdot7^2$, \texttt{uniquenessRatio}=15, \texttt{speckleWindowSize}=400,
+\texttt{speckleRange}=1, \texttt{disp12MaxDiff}=1 y \texttt{preFilterCap}=63.
+Se usa el modo \texttt{MODE\_SGBM}. La salida se divide por 16 para expresarla en píxeles,
+como en el tutorial 6 y el ejemplo de \texttt{stereodemo}. El rango de profundidad depende
+de la focal \emph{rectificada} de $P_1$, no directamente de la focal original de $K$.
+Los filtros de unicidad y speckle buscan reducir correspondencias ambiguas a costa de cobertura.
+La Figura~\ref{fig:disp} muestra la disparidad y la nube resultantes; se analizan también
+sus huecos y errores, ya que la cobertura por sí sola no prueba calidad geométrica.
 
 \textbf{Nube local y pose global.} La nube local se obtiene con \texttt{reprojectImageTo3D}
 y $Q$, conservando los píxeles con $d>0$ y $Z>0$, y el color de la imagen izquierda. Está
 expresada en la cámara izquierda \emph{rectificada}. La pose se estima detectando el ChArUco
 en la imagen izquierda \emph{original} (\texttt{CharucoDetector}) y resolviendo
 \texttt{solvePnP} con $K_l$ y la distorsión izquierda. Se rechazan las tomas con menos de 8
-esquinas, esquinas colineales, cobertura menor al 2\,\% de la imagen o RMS de reproyección
-mayor a 5\,px. \texttt{solvePnP} devuelve $(\mathbf{r},\mathbf{t})$ tales que
+esquinas, esquinas colineales, puntos detrás de la cámara o RMS de reproyección
+mayor a 5\,px. No se aplica un umbral de área ocupada por el patrón en esta versión.
+\texttt{solvePnP} devuelve $(\mathbf{r},\mathbf{t})$ tales que
 $\mathbf{X}_c = R\,\mathbf{X}_w+\mathbf{t}$, donde $\mathbf{r}$ es el \emph{vector de Rodrigues}: su
 dirección es el eje de giro y su norma el ángulo en radianes. \texttt{cv.Rodrigues} lo
 convierte en la matriz $R$. La transformación de la nube al mundo es
 \[
-\mathbf{X}_w \;=\; \underbrace{\begin{bmatrix}R^\top & -R^\top\mathbf{t}\\ \mathbf{0}^\top&1\end{bmatrix}}_{T_{w\leftarrow c}}
-\underbrace{\begin{bmatrix}R_1^\top & \mathbf{0}\\ \mathbf{0}^\top&1\end{bmatrix}}_{T_{c\leftarrow \text{rect}}}\;\mathbf{X}_{\text{rect}},
+\tilde{\mathbf{X}}_w \;=\; \underbrace{\begin{bmatrix}R^\top & -R^\top\mathbf{t}\\ \mathbf{0}^\top&1\end{bmatrix}}_{T_{w\leftarrow c}}
+\underbrace{\begin{bmatrix}R_1^\top & \mathbf{0}\\ \mathbf{0}^\top&1\end{bmatrix}}_{T_{c\leftarrow \text{rect}}}\;\tilde{\mathbf{X}}_{\text{rect}},
 \]
 donde $R_1^\top$ deshace la rotación de rectificación y $T_{w\leftarrow c}$ invierte la pose de PnP.
+Las Figuras~\ref{fig:disp} y~\ref{fig:poses} permiten observar el cambio de marco y la
+coherencia de las poses con la órbita de captura.
 
 \textbf{Fusión y optimización} (\texttt{src/fusion.py}). Las capturas se procesan de a una, sin
-acumular nunca las nubes completas ($\sim$1.4\,M puntos cada una):
+acumular todas las nubes completas en memoria. El recorrido de 4.2 (disparidad, nube y pose)
+se ejecuta para cada par dentro de esta misma pasada:
 \begin{enumerate}\setlength{\itemsep}{0pt}
 \item \emph{Corrección por plano del tablero.} La profundidad estéreo y la pose PnP difieren
 unos milímetros por vista, así que el tablero reconstruido no cae exactamente en $z=0$.
-Se ajusta un plano con RANSAC (\texttt{segment\_plane}, umbral de 2\,mm) a los puntos cercanos al
-tablero, y se aplica la rotación y traslación mínimas que lo llevan a $z=0$.
+Se ajusta un plano con RANSAC (\texttt{segment\_plane}, umbral de 2\,mm) a los puntos a menos
+de 20\,mm de $z=0$ y fuera de la huella de la caja del objeto. Se aplica una rotación para
+alinear su normal con $z$ y una traslación vertical para llevarlo a $z=0$.
+Se rechaza una corrección mayor a $5^\circ$ o 20\,mm. Es una heurística adicional, distinta
+de ICP, que alinea el plano pero no corrige desajustes horizontales ni errores de escala.
+La misma corrección se aplica a la pose usada para visualizar cada nube; el RMS PnP
+reportado corresponde a la pose original, antes de esta corrección.
 \item \emph{Filtrado espacial}: se seleccionan los puntos dentro de una
 \texttt{OrientedBoundingBox} alineada al tablero (\texttt{get\_point\_indices\_}\allowbreak\texttt{within\_bounding\_box}
-y \texttt{select\_by\_index}), con $x\in[40,290]$, $y\in[140,410]$ y $z\in[-160,-2]$\,mm. El límite
-$z<-2$\,mm excluye la superficie del tablero.
-\item \emph{ICP punto a plano} (opcional) de cada captura contra una primera fusión limpia
-(distancia máxima de 3\,mm).
-\item \emph{Consistencia multivista}: se conservan los voxels de 3\,mm observados por al menos 20
-capturas. Los \emph{flying pixels} que SGBM genera en los bordes de profundidad (interpolando
-entre el objeto y el tablero) y los fragmentos flotantes dependen del punto de vista, por lo que
-pocas capturas los respaldan. La superficie real aparece en decenas.
-\item \emph{Submuestreo} con \texttt{voxel\_down\_sample} de 1\,mm: conserva el detalle de las
-espinas del caracol y reduce la redundancia entre vistas.
-\item \emph{Outliers}: \texttt{remove\_statistical\_outlier} (30 vecinos, $2\sigma$) y luego el
-cluster DBSCAN más grande ($\varepsilon=5$\,mm).
+y \texttt{select\_by\_index}), con $x\in[40,290]$, $y\in[140,410]$ y $z\in[-160,-10]$\,mm.
+El corte elimina el tablero, pero también la franja del objeto a menos de 10\,mm de su
+superficie. Se conserva este límite como decisión de filtrado y se reconoce esa pérdida.
+\item \emph{ICP punto a plano}, opcional del enunciado, con la implementación de
+\href{https://www.open3d.org/docs/release/tutorial/pipelines/icp_registration.html}{Open3D}.
+Cada nube se alinea contra una referencia fija formada por la fusión preliminar,
+submuestreada a 2\,mm y filtrada estadísticamente (30 vecinos, $2\sigma$). Se estiman
+normales de la referencia con radio de 8\,mm y hasta 30 vecinos. Se usa una distancia
+máxima de correspondencia de 3\,mm, pérdida Huber de 1\,mm y hasta 50 iteraciones.
+La inicialización es la transformación global ya calculada. Solo se acepta una corrección
+si reduce el RMSE, conserva al menos el 95\,\% del fitness inicial, mueve el centro menos
+de 10\,mm y gira menos de $3^\circ$. Se aplica la misma transformación rígida a la nube
+original y a su pose, sin modificar la escala. La referencia permanece fija durante
+todo el refinamiento. Su efecto se evalúa sobre vistas independientes en la
+Sección~\ref{sec:fusion}, además del RMSE de ajuste del procesamiento final.
+\item \emph{Outliers estadísticos}: sobre la unión densa de las nubes recortadas, se aplica
+\texttt{remove\_statistical\_outlier} (50 vecinos, $0.5\sigma$). Se busca retirar puntos
+dispersos antes del voxel; el umbral es restrictivo y puede eliminar detalles finos.
+\item \emph{Submuestreo} con \texttt{voxel\_down\_sample} de 1\,mm: se elige para reducir la
+redundancia entre vistas procurando conservar el detalle de las espinas del caracol.
+\item \emph{Outliers por radio}: \texttt{remove\_radius\_outlier} (300 puntos en un radio de
+15\,mm) sobre la nube submuestreada.
 \end{enumerate}
-Por último se estiman normales (radio de 4\,mm, orientadas hacia afuera), se exporta
-\texttt{caracol.ply} en binario y se genera una malla de Poisson (profundidad 9) como opcional.
+La Tabla~\ref{tab:stages} cuantifica la reducción de puntos y la Figura~\ref{fig:stages}
+permite inspeccionar el efecto de las etapas y el detalle conservado.
+Por último se estiman normales (radio de 4\,mm, hasta 30 vecinos) y se orientan según el
+vector desde el centro de la nube hacia cada punto. Esta orientación radial es una
+heurística y puede ser incorrecta en concavidades. Se exporta \texttt{caracol.ply} en binario.
+Como opcional se genera una malla de Poisson (profundidad 9), se elimina el 5\,\% de vértices
+con menor densidad, se recorta a la caja de la nube y se simplifica a 300\,000 triángulos.
+\textbf{Opcionales de 4.3:} se implementan ICP, estimación de normales y mallado de Poisson.
 
-\textbf{Medición métrica.} El alto es la distancia al plano $z=0$ del punto más alto (percentil
-99.5 de $-z$). El largo y el ancho son los lados del rectángulo de área mínima
-(\texttt{cv.minAreaRect}) que encierra la proyección de la nube sobre el tablero, lo que equivale a
-una \emph{bounding box} orientada con un eje vertical. El resultado es métrico, y no ``salvo
+\textbf{Medición métrica.} El alto es la distancia al plano $z=0$ del punto más alto,
+$-\min z$. El largo aproxima la máxima separación de la proyección horizontal: se buscan
+puntos extremos en 360 direcciones entre $0$ y $180^\circ$. El ancho es la extensión
+perpendicular al eje que une esos extremos. Es una definición basada en puntos extremos;
+el largo no es el lado mayor de un rectángulo de área mínima. La caja orientada de Open3D
+se usa como control, no como verdad de referencia. El resultado es métrico, y no ``salvo
 escala'' como en la estructura a partir del movimiento monocular, por dos razones: la baseline
-$B$ se calibró con un patrón de tamaño conocido, lo que fija $Z=fB/d$ en milímetros, y el marco
-global está definido por un tablero de dimensiones conocidas.
+$B$ se calibró con un patrón de tamaño conocido, lo que fija la profundidad en milímetros
+(Ec.~\eqref{eq:depth}), y el marco global está definido por un tablero de dimensiones conocidas.
+La Figura~\ref{fig:measure} ilustra los ejes y extremos usados, y la
+Tabla~\ref{tab:measure} compara las dimensiones con las extensiones de la OBB.
 
 %=====================================================================
 \section{Resultados y discusión}
@@ -161,26 +238,36 @@ global está definido por un tablero de dimensiones conocidas.
 \toprule
  & Cámara izquierda & Cámara derecha\\
 \midrule
-$f_x,\,f_y$ (px) & 600.97, 598.79 & 603.37, 601.50\\
-$c_x,\,c_y$ (px) & 961.81, 532.43 & 956.05, 539.48\\
-$k_1,k_2,p_1,p_2,k_3$ & $0.0077,\,-0.0258,\,0.0004,\,-0.0013,\,0.0041$ & $0.0067,\,-0.0247,\,0.0003,\,-0.0017,\,0.0039$\\
+$f_x,\,f_y$ (px) & 603.41, 601.20 & 605.42, 602.79\\
+$c_x,\,c_y$ (px) & 972.65, 527.07 & 967.47, 533.88\\
+$k_1,k_2,p_1,p_2,k_3$ & $0.0101,\,-0.0291,\,-0.0007,\,0.0012,\,0.0048$ & $0.0123,\,-0.0302,\,-0.0007,\,0.0009,\,0.0049$\\
 \midrule
-\multicolumn{3}{l}{$\mathbf{t} = (-59.22,\,-0.31,\,0.89)$\,mm \quad (baseline 59.23\,mm, nominal 60\,mm);\quad $R$: rotación de $0.63^\circ$ (casi paralelas)}\\
-\multicolumn{3}{l}{RMS de reproyección: 0.642\,px (checkerboard, 32 pares) \quad\quad 1.475\,px (refinamiento R/T, 12 vistas ChArUco)}\\
+\multicolumn{3}{l}{$\mathbf{t} = (-59.2112,\,-0.2239,\,0.2234)$\,mm \quad (baseline 59.2121\,mm)}\\
+\multicolumn{3}{l}{RMS: 0.6685\,px (checkerboard, 28 pares); 1.5187\,px (ajuste R/T, 12 pares ChArUco)}\\
 \bottomrule
 \end{tabular}
 \caption{Parámetros de calibración obtenidos (imágenes de $1920\times1080$).}
 \label{tab:calib}
 \end{table}
 
-El RMS de 0.64\,px con el checkerboard indica una calibración buena (subpíxel). El RMS del
-refinamiento es mayor porque fija los intrínsecos y usa vistas oblicuas y lejanas del ChArUco,
-así que no es comparable. Para comparar las dos calibraciones medimos sobre 66 pares de captura
+La rotación relativa, con el redondeo mostrado, es
+\[
+R=\begin{bmatrix}
+0.9999513 & -0.0000851 & 0.0098699\\
+0.0000891 & 0.9999999 & -0.0004045\\
+-0.0098698 & 0.0004053 & 0.9999512
+\end{bmatrix}.
+\]
+El RMS de 0.6685\,px indica un ajuste subpíxel sobre las observaciones conservadas, pero
+no demuestra por sí solo precisión métrica fuera de ellas. El RMS del refinamiento usa
+otro patrón y otras vistas, y fija los intrínsecos; no permite una comparación directa
+con el RMS anterior. Para comparar las dos calibraciones medimos sobre 66 pares de captura
 que no se usaron en el refinamiento: \emph{(i)} el error vertical $|\Delta y|$ entre esquinas
 correspondientes después de rectificar, y \emph{(ii)} la escala de las distancias entre esquinas
 trianguladas respecto de las reales (Tabla~\ref{tab:valid}). El refinamiento reduce el error
-epipolar un 30\,\% y elimina un sesgo de escala del $-1.85$\,\%, que habría encogido el objeto
-unos 4\,mm. La Figura~\ref{fig:rect} muestra que las filas quedan alineadas después de rectificar.
+epipolar un 29.4\,\% y acerca la escala media a 1: el sesgo pasa de $-1.96$\,\% a $+0.15$\,\%.
+El desvío entre vistas permanece cerca del 1.56\,\%; no equivale a una cota de error absoluto
+de las medidas del objeto. La Figura~\ref{fig:rect} compara el par original y el rectificado.
 
 \begin{table}[!htb]
 \centering\small
@@ -188,8 +275,8 @@ unos 4\,mm. La Figura~\ref{fig:rect} muestra que las filas quedan alineadas desp
 \toprule
 Calibración & $|\Delta y|$ medio (px) & Escala media & Desvío de escala entre vistas\\
 \midrule
-Solo checkerboard & 0.738 & 0.9815 & 0.0165\\
-Refinada con ChArUco & \textbf{0.517} & \textbf{1.0002} & 0.0158\\
+Solo checkerboard & 0.720 & 0.9804 & 0.0157\\
+Refinada con ChArUco & \textbf{0.508} & \textbf{1.0015} & 0.0156\\
 \bottomrule
 \end{tabular}
 \caption{Validación en 66 pares no usados para calibrar.}
@@ -214,38 +301,53 @@ Refinada con ChArUco & \textbf{0.517} & \textbf{1.0002} & 0.0158\\
 \label{fig:disp}
 \end{figure}
 
-La Figura~\ref{fig:disp} muestra un mapa de disparidad representativo: el 67\,\% de los píxeles
-tiene disparidad válida (entre 42\,\% y 79\,\% según la captura). El caracol queda en
-$d\approx100$--$125$\,px ($Z\approx280$--$350$\,mm). Los huecos se concentran en los cuadros negros
-y en la mesa blanca, donde no hay textura, y en las 192 columnas de la izquierda, que no tienen
-correspondencia posible. En la parte inferior, la más cercana a la cámara, la disparidad se satura
-cerca de 192 px: ahí \texttt{numDisparities} se queda corto, pero esa zona cae fuera del objeto. La
-nube local de cada par tiene entre 0.9 y 1.6\,M de puntos.
+La Figura~\ref{fig:disp} muestra un mapa representativo: en la captura 1 el 54.0\,\% de los
+píxeles tiene disparidad positiva, y la nube local contiene 1.119\,M de puntos. La cobertura
+no mide exactitud: un píxel con disparidad positiva puede corresponder a un emparejamiento
+incorrecto. Las zonas sin textura y los bordes de oclusión presentan huecos o ruido.
+Las primeras columnas tienen cobertura restringida por la búsqueda de correspondencias
+hacia la izquierda en la imagen derecha. El rango máximo de 192 disparidades también
+limita las superficies cercanas que pueden reconstruirse.
 
-Se aceptaron 77 de 83 capturas. La 33 se rechazó porque el tablero ocupa el 1.5\,\% de la imagen,
-y las 71, 74--76 y 78 porque detectan menos de 8 esquinas (el objeto o el encuadre ocultan el
-tablero). El RMS de reproyección de \texttt{solvePnP} es de 1.05\,px en mediana (0.41--2.86\,px). La
-Figura~\ref{fig:poses} muestra las poses estimadas: las cámaras rodean el tablero por completo,
-a alturas de 35 a 590\,mm y a 100--475\,mm del centro, con los ejes ópticos apuntando hacia el
-objeto. Eso coincide con la órbita a mano alzada, de alturas variables, con la que se tomaron
-las capturas, y la numeración avanza alrededor del tablero en el orden en que se recorrió.
+La estimación de pose admite 78 de 83 capturas. Las 71, 74--76 y 78 se rechazan porque
+detectan menos de 8 esquinas. En la ejecución independiente de revisión, el RMS PnP de las vistas que
+además superaron la corrección por plano tuvo mediana 1.10\,px (rango 0.44--2.50\,px).
+La Figura~\ref{fig:poses} muestra las cámaras alrededor del tablero, con alturas variables,
+de acuerdo con la órbita de captura. La figura usa las poses corregidas para acompañar
+las nubes de la fusión preliminar, antes de ICP; no constituye una nueva validación de
+reproyección de esas poses.
 
 \begin{figure}[!htb]
 \centering
 \begin{subfigure}{0.62\linewidth}\includegraphics[width=\linewidth]{trayectoria_camaras.png}\end{subfigure}
 \begin{subfigure}{0.33\linewidth}\includegraphics[width=\linewidth,trim=280 100 280 100,clip]{poses_camaras.png}\end{subfigure}
-\caption{Poses de las 77 cámaras en el marco del ChArUco. Izquierda: centros (color = número de captura) y dirección del eje óptico. Derecha: frustums sobre la escena fusionada y la caja del objeto (rojo).}
+\caption{Poses de las 77 cámaras que superaron el filtro por plano, antes de ICP. Izquierda: centros (color = número de captura) y eje óptico. Derecha: frustums, fusión preliminar y caja del objeto (rojo).}
 \label{fig:poses}
 \end{figure}
 
 \subsection{Fusión y optimización}
+\label{sec:fusion}
 
-La corrección por plano del tablero resultó de $0.55^\circ$ y 3.9\,mm en mediana (máximo de
-19.4\,mm). Esto es consistente con el desvío de escala
-de $\pm1.6$\,\% entre vistas de la Tabla~\ref{tab:valid}: a 500\,mm, un 2\,\% equivale a 10\,mm. El ICP posterior bajó
-el RMSE medio entre cada captura y la referencia de 1.37 a 1.18\,mm (desplazamiento mediano de
-4.2\,mm), y aumentó un 41\,\% los puntos que pasan el filtro multivista (de 2.48\,M a 3.50\,M), lo
-que indica un mejor empalme.
+En la ejecución guardada que produjo el PLY actual, la corrección por plano fue de
+$0.68^\circ$ y 4.2\,mm en mediana, con máximo absoluto de 17.2\,mm entre las vistas aceptadas.
+La captura 43 requirió $-22.2$\,mm y superó el límite de 20\,mm; quedaron 77 vistas.
+En otra ejecución se aceptaron 78. El ajuste RANSAC paralelo puede variar aun con semilla
+fija; no se afirma reproducción idéntica de puntos ni una cota de repetibilidad.
+
+\textbf{Validación de ICP.} Para evitar evaluar solo sobre la referencia de ajuste, se
+tomó una ejecución independiente con 78 vistas y se separaron por número de captura
+módulo 3: 26 forman la referencia,
+27 un grupo independiente de evaluación y 25 son las nubes a alinear. Se aceptaron
+23 correcciones. El ensayo está implementado en \texttt{validate\_icp} y disponible como
+celda opcional del notebook, antes del ICP final. Sobre las mismas muestras de 2\,mm antes
+y después, la distancia media al vecino más próximo del grupo independiente, limitada
+a 5\,mm por punto y promediada entre vistas, bajó de 1.153 a 0.993\,mm (13.9\,\%).
+Mejoró en 23 de las 25 vistas. La validación no modifica las nubes ni las poses usadas
+en el procesamiento final.
+Es evidencia de mejor empalme geométrico, no una medida de exactitud física del objeto.
+En el procesamiento final, ICP usa la fusión preliminar completa como referencia; por
+eso su RMSE de ajuste no se presenta como una validación independiente. Se aceptaron las
+77 correcciones de la ejecución actual: el RMSE medio de ajuste pasó de 0.918 a 0.802\,mm.
 
 \begin{table}[!htb]
 \centering\small
@@ -253,15 +355,15 @@ que indica un mejor empalme.
 \toprule
 Etapa & Puntos & \% del anterior\\
 \midrule
-Escena completa (77 nubes, sin optimizar) & 104\,748\,216 & --\\
-Caja del objeto (\texttt{OrientedBoundingBox}) & 5\,435\,170 & 5.2\,\%\\
-ICP + consistencia multivista ($\geq$20 vistas, voxel de 3\,mm) & 3\,495\,281 & 64.3\,\%\\
-\texttt{voxel\_down\_sample} (1\,mm) & 259\,442 & 7.4\,\%\\
-\texttt{remove\_statistical\_outlier} (30, $2\sigma$) & 247\,529 & 95.4\,\%\\
-Cluster DBSCAN principal (\textbf{final}) & \textbf{243\,961} & 98.6\,\%\\
+Escena completa (77 nubes, sin optimizar) & 82\,835\,454 & --\\
+Caja del objeto (\texttt{OrientedBoundingBox}) & 4\,386\,076 & 5.3\,\%\\
+ICP (transformación rígida, sin eliminar puntos) & 4\,386\,076 & 100\,\%\\
+\texttt{remove\_statistical\_outlier} (50, $0.5\sigma$) & 3\,633\,216 & 82.8\,\%\\
+\texttt{voxel\_down\_sample} (1\,mm) & 378\,972 & 10.4\,\%\\
+\texttt{remove\_radius\_outlier} (300, 15\,mm), \textbf{final} & \textbf{378\,637} & 99.9\,\%\\
 \bottomrule
 \end{tabular}
-\caption{Puntos sobrevivientes en cada etapa. El \texttt{.ply} final binario (posición, color y normales) pesa 12.4\,MB, mientras que la escena completa ocuparía $\sim$2.8\,GB (posición en \texttt{double} + color).}
+\caption{Conteos de la ejecución usada para exportar el PLY actual. El archivo binario final, con posición, color y normales, pesa 19.3\,MB. La escena completa ocuparía aproximadamente 2.2\,GB en PLY con posición en \texttt{double} y color, sin normales. No se exporta esa nube intermedia.}
 \label{tab:stages}
 \end{table}
 
@@ -269,81 +371,97 @@ Cluster DBSCAN principal (\textbf{final}) & \textbf{243\,961} & 98.6\,\%\\
 \centering
 \begin{subfigure}{0.24\linewidth}\includegraphics[width=\linewidth,trim=100 100 100 100,clip]{etapa_escena.png}\caption{Escena + caja.}\end{subfigure}
 \begin{subfigure}{0.24\linewidth}\includegraphics[width=\linewidth,trim=100 150 100 100,clip]{etapa_caja.png}\caption{Recorte con la caja.}\end{subfigure}
-\begin{subfigure}{0.24\linewidth}\includegraphics[width=\linewidth,trim=250 200 200 100,clip]{etapa_consistencia_voxel.png}\caption{Multivista + voxel.}\end{subfigure}
-\begin{subfigure}{0.24\linewidth}\includegraphics[width=\linewidth,trim=250 200 200 100,clip]{malla_poisson.png}\caption{Malla de Poisson.}\end{subfigure}\\[0.3em]
-\begin{subfigure}{0.32\linewidth}\includegraphics[width=\linewidth,trim=250 200 200 100,clip]{final_frente.png}\end{subfigure}
-\begin{subfigure}{0.32\linewidth}\includegraphics[width=\linewidth,trim=250 200 200 100,clip]{final_lado.png}\end{subfigure}
-\begin{subfigure}{0.32\linewidth}\includegraphics[width=\linewidth,trim=250 150 250 100,clip]{final_arriba.png}\end{subfigure}
-\caption{Arriba: etapas de la optimización. Abajo: nube final optimizada desde el frente, de costado y desde arriba.}
+\begin{subfigure}{0.24\linewidth}\includegraphics[width=\linewidth,trim=250 10 200 200,clip]{etapa_estadistico_voxel.png}\caption{ICP + estadístico + voxel.}\end{subfigure}
+\begin{subfigure}{0.24\linewidth}\includegraphics[width=\linewidth,trim=250 10 200 200,clip]{malla_poisson.png}\caption{Malla de Poisson.}\end{subfigure}\\[0.3em]
+\begin{subfigure}{0.32\linewidth}\includegraphics[width=\linewidth,trim=250 10 200 200,clip]{final_frente.png}\end{subfigure}
+\begin{subfigure}{0.32\linewidth}\includegraphics[width=\linewidth,trim=200 10 200 200,clip]{final_lado.png}\end{subfigure}
+\begin{subfigure}{0.32\linewidth}\includegraphics[width=\linewidth,trim=250 10 200 150,clip]{final_arriba.png}\end{subfigure}
+\caption{Arriba: etapas de la optimización. Abajo: nube final tras el filtro por radio, desde el frente, de costado y desde arriba.}
 \label{fig:stages}
 \end{figure}
 
-La Figura~\ref{fig:stages}(b) muestra el principal problema después del recorte: una ``pollera'' de
-puntos blancos y negros del tablero que sube por los costados del caracol, además de fragmentos
-flotantes. Son \emph{flying pixels}, píxeles en bordes de profundidad a los que SGBM asigna una
-disparidad intermedia entre el objeto y el fondo. El filtrado estadístico solo no alcanzaba a
-quitarlos, porque son densos localmente. El filtro multivista sí lo logra, porque cada vista
-genera la pollera en un lugar distinto (c). El submuestreo a 1\,mm deja la nube en un 7.4\,\% y
-conserva las espinas y el labio del caracol.
+La Figura~\ref{fig:stages} permite comparar el recorte y el filtrado. Se retiran el tablero
+y puntos dispersos, aunque quedan ruido y diferencias de empalme en los bordes del objeto.
+La imagen del recorte usa voxel solo para facilitar su visualización; los conteos de la
+tabla corresponden a las nubes de cada etapa. Los filtros locales no garantizan eliminar
+todos los \emph{flying pixels}: los puntos incorrectos que formen grupos densos pueden sobrevivir.
+El filtrado por radio retiró solo 335 puntos adicionales en esta ejecución.
+
+La malla opcional contiene 138\,986 vértices y 300\,000 triángulos, con coordenadas finitas.
+La comprobación topológica de Open3D indica que no es cerrada ni orientable. Se presenta
+como resultado experimental de Poisson, no como una superficie validada o apta para fabricar.
 
 \subsection{Medición métrica}
 
 \begin{figure}[!htb]
 \centering
 \includegraphics[width=0.85\linewidth]{medicion.png}
-\caption{Medición sobre la nube final: rectángulo de área mínima de la proyección sobre el tablero (izquierda) y perfil a lo largo del eje largo, con el plano $z=0$ y el alto (derecha).}
+\caption{Medición sobre la nube final: extremos de máxima separación horizontal aproximada y caja alineada a ese eje (izquierda); perfil de alturas sobre el tablero (derecha). No es un rectángulo de área mínima.}
 \label{fig:measure}
 \end{figure}
 
 \begin{table}[!htb]
 \centering\small
-\begin{tabular}{lccccc}
+\begin{tabular}{lcc}
 \toprule
- & Rectángulo mínimo + plano & OBB mínima Open3D & Rango en 3 corridas & Real (regla) & Error relativo\\
+ & Método de extremos + plano & OBB Open3D, extensiones ordenadas\\
 \midrule
-Alto  & \textbf{121.8} & 116.2 & 121.7--121.8 & \real{?} & \real{?}\\
-Largo & \textbf{219.3} & 221.2 & 216.6--219.3 & \real{?} & \real{?}\\
-Ancho & \textbf{202.0} & 209.6 & 201.7--202.2 & \real{?} & \real{?}\\
+Alto  & \textbf{129.6} & 143.1 (menor)\\
+Largo & \textbf{238.1} & 228.5 (mayor)\\
+Ancho & \textbf{206.3} & 204.4 (intermedia)\\
 \bottomrule
 \end{tabular}
-\caption{Dimensiones estimadas del caracol, en mm.}
+\caption{Dimensiones estimadas, en mm. La OBB puede inclinarse: sus ejes no corresponden necesariamente al alto, largo y ancho físicos. No se dispone aún de medidas con regla.}
 \label{tab:measure}
 \end{table}
 
-La Tabla~\ref{tab:measure} resume la medición. Usamos como resultado el método que aprovecha el
-plano del tablero (Figura~\ref{fig:measure}), porque el alto queda definido respecto de la
-superficie de apoyo real. La OBB mínima de Open3D no restringe la orientación y se inclina para
-abrazar el objeto, por lo que mezcla alto con ancho (116 vs.\ 122\,mm). Ejecutamos el pipeline
-completo tres veces: como el RANSAC de la corrección por plano no es determinista, las medidas
-varían en un rango de hasta 2.7\,mm (1.2\,\%), una cota de la repetibilidad del método. El
-sesgo medio de escala de la calibración validada es del 0.02\,\%, y el desvío por vista
-($\pm1.6$\,\%) se promedia entre las 77 capturas y queda compensado por ICP, así que la escala
-no es la fuente dominante: pesan más la definición de los bordes (la base del labio, que toca el
-tablero, y la punta de las espinas) y el ruido residual en el contorno.
+La Tabla~\ref{tab:measure} corresponde al PLY entregado. El alto se refiere al plano del
+tablero y no a la extensión vertical de la nube final, que es 120.5\,mm. El recorte previo
+a ICP elimina la franja a menos de 10\,mm del tablero, que el refinamiento rígido no
+recupera. La altura máxima de 129.6\,mm es sensible a puntos extremos: el
+percentil 99.5 de las alturas es 122.6\,mm. No se sustituye automáticamente el máximo por
+ese percentil, pues también podría eliminar una punta real del caracol. Como control de
+definición geométrica, el rectángulo de área mínima de la proyección mide
+$225.2\times195.7$\,mm, distinto de la máxima separación usada como largo.
 
+Al repetir el procesamiento en la ejecución independiente de revisión, con 78 vistas,
+se obtuvieron $130.8\times237.5\times205.6$\,mm. La mayor diferencia frente al PLY entregado
+fue de 1.2\,mm en el alto. Esta comparación entre dos corridas muestra variación del
+procesamiento; no establece una cota de repetibilidad ni de exactitud física.
+
+No se conocen todavía las dimensiones físicas independientes. Se reporta una estimación
+métrica y sus limitaciones; no se calcula un error relativo ni se afirma exactitud milimétrica.
+Cuando se mida con regla habrá que usar las mismas definiciones de largo, ancho y altura.
+
+\clearpage
 \subsection{Discusión}
 
-\textbf{Problemas encontrados.} \emph{(1)} Los \emph{flying pixels} de SGBM fueron el principal
-obstáculo para tener una nube limpia, y los resolvimos con el filtro de consistencia multivista.
-\emph{(2)} Hay una inconsistencia de escala de $\pm$1.6\,\% por vista entre la triangulación y la
-pose PnP. La atribuimos a que la profundidad depende de la baseline y de la disparidad, mientras
-que la pose depende de $K$ y del tamaño del tablero, y los errores de calibración afectan a cada
-una de forma distinta. La compensamos con la corrección por plano y con ICP. \emph{(3)} La
-calibración con checkerboard tenía un sesgo de escala del 1.85\,\% en las distancias de captura,
-que corregimos con el refinamiento de $(R,\mathbf{t})$. Esto subraya que el RMS de reproyección
-por sí solo no garantiza precisión métrica. \emph{(4)} En 6 capturas el tablero no fue detectable.
+\textbf{Problemas encontrados.} \emph{(1)} Las correspondencias incorrectas en los bordes de
+profundidad generan puntos espurios; los filtros reducen su presencia, pero no prueban su
+eliminación completa. \emph{(2)} El refinamiento R/T mejora el error epipolar y el sesgo
+medio de escala sobre otras vistas; permanece variación entre ellas. Una corrección rígida
+por plano no puede corregir un error de escala, y el plano por sí solo no determina el
+desplazamiento dentro de él. \emph{(3)} Cinco capturas no permiten estimar la pose con el
+mínimo de esquinas elegido. \emph{(4)} La aceptación de una vista cercana al umbral de
+corrección puede variar entre ejecuciones. Estos resultados separan calidad de ajuste,
+repetibilidad y exactitud física, que no son equivalentes.
 
-\textbf{Limitaciones.} El error de profundidad crece como $Z^2$: con $f\!=\!600$\,px y $B\!=\!59$\,mm,
-un error de 0.5\,px en la disparidad equivale a $\sim$1.3\,mm a 300\,mm, pero a $\sim$4.3\,mm a
+\textbf{Limitaciones.} El error de profundidad crece como $Z^2$: con focal rectificada
+$f\!=\!604.13$\,px y $B\!=\!59.21$\,mm,
+un error de 0.5\,px en la disparidad equivale a $\sim$1.3\,mm a 300\,mm, pero a $\sim$4.2\,mm a
 550\,mm. Las vistas lejanas aportan menos precisión. La base del objeto apoyada sobre el tablero
 nunca es visible, así que la nube no es cerrada y la malla de Poisson inventa esa cara. Las
-zonas sin textura (interior blanco de la abertura) quedan con menos densidad. La caja del objeto
-se eligió a mano, a partir de una fusión preliminar.
+zonas sin textura quedan con menos densidad. La caja del objeto se eligió a mano, a partir
+de una fusión preliminar, y su límite de 10\,mm recorta parte del objeto. La orientación
+radial de normales no representa de forma general una superficie cóncava; junto con el
+ruido y las capas superpuestas, limita la calidad del mallado de Poisson.
 
-\textbf{Mejoras posibles.} Usar estéreo con redes neuronales (RAFT-Stereo, CREStereo), que da
-disparidades más completas y bordes más nítidos. Ajustar por \emph{bundle adjustment} todas las
-poses junto con las esquinas del ChArUco. Fusionar volumétricamente (TSDF), que promedia la
-profundidad en lugar de acumular puntos. Capturar más cerca y a distancia constante (por
-ejemplo, con un plato giratorio). Calibrar a las mismas distancias de trabajo de la captura.
+\textbf{Mejoras posibles.} Revisar el recorte de la base y contrastar las dimensiones con
+una regla. Comprobar también el efecto de las correcciones ICP sobre las proyecciones
+del patrón conocido. Validar la orientación consistente
+de normales antes de repetir Poisson. Se podrían comparar métodos neuronales de estéreo
+o fusión volumétrica, sin asumir que mejorarán este dataset. Para nuevas capturas, mantener
+objeto y tablero inmóviles entre tomas y mover la cámara a distancias de trabajo similares
+a las usadas para calibrar.
 
 \end{document}
