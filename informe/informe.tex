@@ -1,7 +1,7 @@
 \documentclass[10pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[spanish,es-noquoting]{babel}
+\usepackage[spanish,es-noquoting,es-nodecimaldot]{babel}
 \addto\captionsspanish{\renewcommand{\tablename}{Tabla}}
 \usepackage[margin=1.8cm]{geometry}
 \usepackage{amsmath,amssymb,mathtools}
@@ -53,7 +53,7 @@ estéreo tomados en órbita con una cámara ELP-USB3D1080P02-H120, usando un tab
 como marco de referencia global. El pipeline calibra y rectifica el par estéreo, calcula
 disparidad con SGBM, estima la pose de cada toma con \texttt{solvePnP}, fusiona las nubes en el
 marco del tablero y las optimiza con Open3D. Estimamos un tamaño de
-$129.6\times238.1\times206.3$\,mm (alto $\times$ largo $\times$ ancho), con las definiciones
+$131.2\times238.7\times206.2$\,mm (alto $\times$ largo $\times$ ancho), con las definiciones
 de medición indicadas más adelante. No se dispone aún de medidas físicas independientes
 para verificar la precisión absoluta.
 \end{abstract}
@@ -310,8 +310,8 @@ hacia la izquierda en la imagen derecha. El rango máximo de 192 disparidades ta
 limita las superficies cercanas que pueden reconstruirse.
 
 La estimación de pose admite 78 de 83 capturas. Las 71, 74--76 y 78 se rechazan porque
-detectan menos de 8 esquinas. En la ejecución independiente de revisión, el RMS PnP de las vistas que
-además superaron la corrección por plano tuvo mediana 1.10\,px (rango 0.44--2.50\,px).
+detectan menos de 8 esquinas. En la ejecución guardada, el RMS PnP de las vistas que
+además superaron la corrección por plano tuvo mediana 1.11\,px (rango 0.44--2.50\,px).
 La Figura~\ref{fig:poses} muestra las cámaras alrededor del tablero, con alturas variables,
 de acuerdo con la órbita de captura. La figura usa las poses corregidas para acompañar
 las nubes de la fusión preliminar, antes de ICP; no constituye una nueva validación de
@@ -321,7 +321,7 @@ reproyección de esas poses.
 \centering
 \begin{subfigure}{0.62\linewidth}\includegraphics[width=\linewidth]{trayectoria_camaras.png}\end{subfigure}
 \begin{subfigure}{0.33\linewidth}\includegraphics[width=\linewidth,trim=280 100 280 100,clip]{poses_camaras.png}\end{subfigure}
-\caption{Poses de las 77 cámaras que superaron el filtro por plano, antes de ICP. Izquierda: centros (color = número de captura) y eje óptico. Derecha: frustums, fusión preliminar y caja del objeto (rojo).}
+\caption{Poses de las 78 cámaras que superaron el filtro por plano, antes de ICP. Izquierda: centros (color = número de captura) y eje óptico. Derecha: frustums, fusión preliminar y caja del objeto (rojo).}
 \label{fig:poses}
 \end{figure}
 
@@ -329,25 +329,23 @@ reproyección de esas poses.
 \label{sec:fusion}
 
 En la ejecución guardada que produjo el PLY actual, la corrección por plano fue de
-$0.68^\circ$ y 4.2\,mm en mediana, con máximo absoluto de 17.2\,mm entre las vistas aceptadas.
-La captura 43 requirió $-22.2$\,mm y superó el límite de 20\,mm; quedaron 77 vistas.
-En otra ejecución se aceptaron 78. El ajuste RANSAC paralelo puede variar aun con semilla
-fija; no se afirma reproducción idéntica de puntos ni una cota de repetibilidad.
+$0.64^\circ$ y 4.3\,mm en mediana, con máximo absoluto de 19.4\,mm entre las vistas aceptadas.
+La captura 43 requirió $-19.4$\,mm, por lo que no superó el límite de 20\,mm; quedaron 78 vistas.
+En otras ejecuciones superó el límite y quedaron 77. El ajuste RANSAC paralelo puede
+variar aun con semilla fija; no se afirma reproducción idéntica de puntos ni una cota de repetibilidad.
 
-\textbf{Validación de ICP.} Para evitar evaluar solo sobre la referencia de ajuste, se
-tomó una ejecución independiente con 78 vistas y se separaron por número de captura
-módulo 3: 26 forman la referencia,
+\textbf{Validación de ICP.} Para evitar evaluar solo sobre la referencia de ajuste, las 78 vistas de la ejecución guardada se separaron por número de captura módulo 3: 26 forman la referencia,
 27 un grupo independiente de evaluación y 25 son las nubes a alinear. Se aceptaron
-23 correcciones. El ensayo está implementado en \texttt{validate\_icp} y disponible como
+25 correcciones. El ensayo está implementado en \texttt{validate\_icp} y disponible como
 celda opcional del notebook, antes del ICP final. Sobre las mismas muestras de 2\,mm antes
 y después, la distancia media al vecino más próximo del grupo independiente, limitada
-a 5\,mm por punto y promediada entre vistas, bajó de 1.153 a 0.993\,mm (13.9\,\%).
-Mejoró en 23 de las 25 vistas. La validación no modifica las nubes ni las poses usadas
+a 5\,mm por punto y promediada entre vistas, bajó de 1.144 a 1.046\,mm (8.5\,\%).
+Mejoró en 23 de las 25 vistas; en las dos restantes no mejoró. La validación no modifica las nubes ni las poses usadas
 en el procesamiento final.
 Es evidencia de mejor empalme geométrico, no una medida de exactitud física del objeto.
 En el procesamiento final, ICP usa la fusión preliminar completa como referencia; por
 eso su RMSE de ajuste no se presenta como una validación independiente. Se aceptaron las
-77 correcciones de la ejecución actual: el RMSE medio de ajuste pasó de 0.918 a 0.802\,mm.
+78 correcciones de la ejecución actual: el RMSE medio de ajuste pasó de 0.926 a 0.805\,mm.
 
 \begin{table}[!htb]
 \centering\small
@@ -355,15 +353,15 @@ eso su RMSE de ajuste no se presenta como una validación independiente. Se acep
 \toprule
 Etapa & Puntos & \% del anterior\\
 \midrule
-Escena completa (77 nubes, sin optimizar) & 82\,835\,454 & --\\
-Caja del objeto (\texttt{OrientedBoundingBox}) & 4\,386\,076 & 5.3\,\%\\
-ICP (transformación rígida, sin eliminar puntos) & 4\,386\,076 & 100\,\%\\
-\texttt{remove\_statistical\_outlier} (50, $0.5\sigma$) & 3\,633\,216 & 82.8\,\%\\
-\texttt{voxel\_down\_sample} (1\,mm) & 378\,972 & 10.4\,\%\\
-\texttt{remove\_radius\_outlier} (300, 15\,mm), \textbf{final} & \textbf{378\,637} & 99.9\,\%\\
+Escena completa (78 nubes, sin optimizar) & 83\,667\,820 & --\\
+Caja del objeto (\texttt{OrientedBoundingBox}) & 4\,439\,000 & 5.3\,\%\\
+ICP (transformación rígida, sin eliminar puntos) & 4\,439\,000 & 100\,\%\\
+\texttt{remove\_statistical\_outlier} (50, $0.5\sigma$) & 3\,687\,369 & 83.1\,\%\\
+\texttt{voxel\_down\_sample} (1\,mm) & 389\,839 & 10.6\,\%\\
+\texttt{remove\_radius\_outlier} (300, 15\,mm), \textbf{final} & \textbf{389\,519} & 99.9\,\%\\
 \bottomrule
 \end{tabular}
-\caption{Conteos de la ejecución usada para exportar el PLY actual. El archivo binario final, con posición, color y normales, pesa 19.3\,MB. La escena completa ocuparía aproximadamente 2.2\,GB en PLY con posición en \texttt{double} y color, sin normales. No se exporta esa nube intermedia.}
+\caption{Conteos de la ejecución usada para exportar el PLY actual. El archivo binario final, con posición, color y normales, pesa 19.9\,MB. La escena completa ocuparía aproximadamente 2.3\,GB en PLY con posición en \texttt{double} y color, sin normales. No se exporta esa nube intermedia.}
 \label{tab:stages}
 \end{table}
 
@@ -385,9 +383,9 @@ y puntos dispersos, aunque quedan ruido y diferencias de empalme en los bordes d
 La imagen del recorte usa voxel solo para facilitar su visualización; los conteos de la
 tabla corresponden a las nubes de cada etapa. Los filtros locales no garantizan eliminar
 todos los \emph{flying pixels}: los puntos incorrectos que formen grupos densos pueden sobrevivir.
-El filtrado por radio retiró solo 335 puntos adicionales en esta ejecución.
+El filtrado por radio retiró solo 320 puntos adicionales en esta ejecución.
 
-La malla opcional contiene 138\,986 vértices y 300\,000 triángulos, con coordenadas finitas.
+La malla opcional contiene 138\,066 vértices y 299\,999 triángulos, con coordenadas finitas.
 La comprobación topológica de Open3D indica que no es cerrada ni orientable. Se presenta
 como resultado experimental de Poisson, no como una superficie validada o apta para fabricar.
 
@@ -406,9 +404,9 @@ como resultado experimental de Poisson, no como una superficie validada o apta p
 \toprule
  & Método de extremos + plano & OBB Open3D, extensiones ordenadas\\
 \midrule
-Alto  & \textbf{129.6} & 143.1 (menor)\\
-Largo & \textbf{238.1} & 228.5 (mayor)\\
-Ancho & \textbf{206.3} & 204.4 (intermedia)\\
+Alto  & \textbf{131.2} & 145.5 (menor)\\
+Largo & \textbf{238.7} & 227.7 (mayor)\\
+Ancho & \textbf{206.2} & 204.8 (intermedia)\\
 \bottomrule
 \end{tabular}
 \caption{Dimensiones estimadas, en mm. La OBB puede inclinarse: sus ejes no corresponden necesariamente al alto, largo y ancho físicos. No se dispone aún de medidas con regla.}
@@ -416,17 +414,17 @@ Ancho & \textbf{206.3} & 204.4 (intermedia)\\
 \end{table}
 
 La Tabla~\ref{tab:measure} corresponde al PLY entregado. El alto se refiere al plano del
-tablero y no a la extensión vertical de la nube final, que es 120.5\,mm. El recorte previo
+tablero y no a la extensión vertical de la nube final, que es 121.8\,mm. El recorte previo
 a ICP elimina la franja a menos de 10\,mm del tablero, que el refinamiento rígido no
-recupera. La altura máxima de 129.6\,mm es sensible a puntos extremos: el
-percentil 99.5 de las alturas es 122.6\,mm. No se sustituye automáticamente el máximo por
+recupera. La altura máxima de 131.2\,mm es sensible a puntos extremos: el
+percentil 99.5 de las alturas es 123.0\,mm. No se sustituye automáticamente el máximo por
 ese percentil, pues también podría eliminar una punta real del caracol. Como control de
 definición geométrica, el rectángulo de área mínima de la proyección mide
-$225.2\times195.7$\,mm, distinto de la máxima separación usada como largo.
+$226.7\times196.7$\,mm, distinto de la máxima separación usada como largo.
 
-Al repetir el procesamiento en la ejecución independiente de revisión, con 78 vistas,
-se obtuvieron $130.8\times237.5\times205.6$\,mm. La mayor diferencia frente al PLY entregado
-fue de 1.2\,mm en el alto. Esta comparación entre dos corridas muestra variación del
+En una ejecución anterior, con 77 vistas (la captura 43 quedó fuera), se obtuvieron
+$129.6\times238.1\times206.3$\,mm. La mayor diferencia frente al PLY entregado fue de
+1.6\,mm en el alto. Esta comparación entre dos corridas muestra variación del
 procesamiento; no establece una cota de repetibilidad ni de exactitud física.
 
 No se conocen todavía las dimensiones físicas independientes. Se reporta una estimación
